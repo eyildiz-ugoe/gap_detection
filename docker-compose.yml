@@ -1,0 +1,21 @@
+version: '3'
+
+services:
+  gap_detection:
+    build: .
+    image: ugoe_gap_detection_ros:latest
+    container_name: gap_detection
+    network_mode: host
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${HOME}/.Xauthority:/root/.Xauthority:rw
+      - ./:/root/catkin_ws/src/ugoe_gap_detection_ros:rw
+      # Mount directory for rosbag files
+      - ${HOME}/rosbags:/root/rosbags:ro
+    privileged: true
+    stdin_open: true
+    tty: true
+    command: bash
