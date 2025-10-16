@@ -1,0 +1,15 @@
+.git
+.gitignore
+*.pyc
+__pycache__
+.vscode
+.idea
+*.bag
+build/
+devel/
+.catkin_workspace
+*.pdf
+*.mp4
+*.avi
+README.md
+QUICKSTART.md

@@ -1,19 +1,52 @@
-"""
-Helper methods
-==============
-Methods for gap_detector.py to convert or construct different ROS message
-formats, evaluate the detector as well as calculating the convex hull of a gap.
+"""Helper utilities for the gap detector.
 
+This module contains helper functions that convert between ROS message
+representations and NumPy arrays as well as utilities for calculating convex
+hulls and persisting evaluation data.  The original code was tightly coupled to
+ROS which made it hard to exercise the algorithms in a non-ROS environment.
+The helpers now degrade gracefully when ROS specific dependencies are not
+available so that the computational parts can still be unit tested.
 """
+
+from __future__ import annotations
 
 import numpy as np
-import rospy
-import rospkg
-import geometry_msgs
-import sensor_msgs.point_cloud2 as pc2
-from sensor_msgs.msg import PointField
-from std_msgs.msg import Header
 from scipy.spatial import ConvexHull
+
+try:  # pragma: no cover - exercised indirectly in ROS
+    import rospy  # type: ignore
+except ImportError:  # pragma: no cover - allow running without ROS
+    class _RospyStub:
+        """Minimal stand-in for :mod:`rospy` used in unit tests.
+
+        The functions simply swallow messages which keeps the algorithmic code
+        unchanged while avoiding a hard dependency on a running ROS
+        installation during testing.
+        """
+
+        @staticmethod
+        def logwarn(message):
+            pass
+
+        @staticmethod
+        def loginfo(message):
+            pass
+
+    rospy = _RospyStub()  # type: ignore
+
+try:  # pragma: no cover - used only when evaluation files are written
+    import rospkg  # type: ignore
+except ImportError:  # pragma: no cover - allow running without ROS
+    rospkg = None
+
+try:  # pragma: no cover - exercised in integration tests with ROS
+    import sensor_msgs.point_cloud2 as pc2  # type: ignore
+    from sensor_msgs.msg import PointField  # type: ignore
+    from std_msgs.msg import Header  # type: ignore
+except ImportError:  # pragma: no cover - allow running without ROS
+    pc2 = None
+    PointField = None
+    Header = None
 
 
 def PC2_to_numpy_array(pointcloud):
@@ -39,6 +72,12 @@ def PC2_to_numpy_array(pointcloud):
     """
 
     dimensions = ("x", "y", "z")
+    if pc2 is None:
+        raise ImportError(
+            "ROS message definitions are required to convert PointCloud2 to "
+            "NumPy arrays."
+        )
+
     points = pc2.read_points(
         pointcloud, field_names=dimensions, skip_nans=True)
 
@@ -73,6 +112,12 @@ def numpy_array_to_PC2(numpy_array, frame_id):
     http://docs.ros.org/melodic/api/sensor_msgs/html/msg/PointCloud2.html
 
     """
+
+    if pc2 is None or PointField is None or Header is None:
+        raise ImportError(
+            "ROS message definitions are required to convert NumPy arrays to "
+            "PointCloud2."
+        )
 
     points = numpy_array.tolist()
 
@@ -128,7 +173,7 @@ def calculate_convex_hulls_and_centers(gaps):
         # calculate the sizes
         sx = (np.max(vertices_x)-np.min(vertices_x))/2
         sy = (np.max(vertices_y)-np.min(vertices_y))/2
-        sz = (np.max(vertices_x)-np.min(vertices_x))/2
+        sz = (np.max(vertices_z)-np.min(vertices_z))/2
         size = [sx, sy, sz]
 
 
@@ -163,6 +208,12 @@ def evaluate_detector(num_of_points):
         Tuple of the number of points for each gap.
 
     """
+
+    if rospkg is None:
+        raise RuntimeError(
+            "rospkg is required to evaluate the detector outside of a ROS "
+            "workspace."
+        )
 
     rospack = rospkg.RosPack()
     src_dir = rospack.get_path('ugoe_gap_detection_ros')

@@ -10,8 +10,10 @@ import rospy
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  # required for 3d plots
 import time
+import numpy as np
+from scipy.spatial import ConvexHull
 
 
 def draw_convex_hull(gap_simplexes, frame_id):
