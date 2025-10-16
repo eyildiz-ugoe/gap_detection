@@ -1,0 +1,17 @@
+<launch>
+
+    <!-- ////////////////////////////////LAUNCH THE RANGEMAP NODE\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\ -->
+    <node name="preprocessing_node" type="preprocessing_node" pkg="ugoe_gap_detection_ros" output="screen"/>
+
+    <!-- ////////////////////////////////LAUNCH THE GAP DETECTOR NODE\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\ -->
+    <node name="ugoe_gap_detection_ros" type="gap_detector.py" pkg="ugoe_gap_detection_ros" output="screen"/>
+
+    <!-- ////////////////////////////////LAUNCH RVIZ\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\ -->
+    <node type="rviz" name="rviz" pkg="rviz" args="-d $(find ugoe_gap_detection_ros)/rviz_config.rviz" />
+    
+    <!-- ////////////////////////////////START DYNAMIC RECONFIGURE\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\ -->
+    <node name="rqt_gui" pkg="rqt_gui" type="rqt_gui" args="-s reconfigure"/>
+</launch>
+
+
+

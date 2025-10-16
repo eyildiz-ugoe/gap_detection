@@ -1,0 +1,58 @@
+!!python/object/new:dynamic_reconfigure.encoding.Config
+dictitems:
+  MeanK: 178
+  StdDevMulThresh: 30.0
+  create_PCD: false
+  groups: !!python/object/new:dynamic_reconfigure.encoding.Config
+    dictitems:
+      create_PCD: false
+      groups: !!python/object/new:dynamic_reconfigure.encoding.Config
+        dictitems:
+          Region_of_Interest_selection: !!python/object/new:dynamic_reconfigure.encoding.Config
+            dictitems:
+              groups: !!python/object/new:dynamic_reconfigure.encoding.Config
+                state: []
+              id: 2
+              name: Region_of_Interest_selection
+              parameters: !!python/object/new:dynamic_reconfigure.encoding.Config
+                state: []
+              parent: 0
+              state: true
+              type: ''
+              xLowerLimit: 0.3
+              xUpperLimit: 0.4
+              yLowerLimit: -0.12299999999999998
+              yUpperLimit: 0.014999999999999998
+              zLowerLimit: -0.041999999999999996
+              zUpperLimit: 0.063
+            state: []
+          Statistical_Outlier_Denoising: !!python/object/new:dynamic_reconfigure.encoding.Config
+            dictitems:
+              MeanK: 178
+              StdDevMulThresh: 30.0
+              groups: !!python/object/new:dynamic_reconfigure.encoding.Config
+                state: []
+              id: 1
+              name: Statistical_Outlier_Denoising
+              parameters: !!python/object/new:dynamic_reconfigure.encoding.Config
+                state: []
+              parent: 0
+              state: true
+              type: ''
+            state: []
+        state: []
+      id: 0
+      name: Default
+      parameters: !!python/object/new:dynamic_reconfigure.encoding.Config
+        state: []
+      parent: 0
+      state: true
+      type: ''
+    state: []
+  xLowerLimit: 0.3
+  xUpperLimit: 0.4
+  yLowerLimit: -0.12299999999999998
+  yUpperLimit: 0.014999999999999998
+  zLowerLimit: -0.041999999999999996
+  zUpperLimit: 0.063
+state: []
