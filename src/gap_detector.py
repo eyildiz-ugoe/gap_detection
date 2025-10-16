@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
-import sys
 import visualization
 import helpers
+import gap_detection_core
 
 # ROS
 import rospy
@@ -24,20 +24,6 @@ debug_lock = threading.RLock()
 from dynamic_reconfigure.server import Server
 from ugoe_gap_detection_ros.cfg import GapDetectionConfig
 
-# Numpy and scikit-learn
-import numpy as np
-from skimage.filters import threshold_otsu, threshold_minimum, threshold_li
-from skimage.filters import threshold_yen
-from scipy.spatial import ConvexHull
-
-import warnings
-with warnings.catch_warnings():
-    # filter sklearn\externals\joblib\parallel.py:268:
-    # DeprecationWarning: check_pickle is deprecated
-    warnings.simplefilter("ignore", category=DeprecationWarning)
-    import sklearn.cluster as cluster
-    import hdbscan
-
 NERIAN_FRAME_PERIOD = 1. / 1.5  # 1.5 Hz
 
 class GapDetector:
@@ -57,119 +43,71 @@ class GapDetector:
         self.gap_detection_srv = rospy.Service('ugoe_gap_detection_ros/detect_gaps', GapArray, self.gap_detection_call)
 
         self.gaps = []
+        self._gap_point_counts = []
+        self._volume_correction_counts = []
 
     # =============== MAIN DETECTION LOOP ===============
     def detector_callback(self, preprocessed_pc):
         self.image_received.set()
-        points = helpers.PC2_to_numpy_array(preprocessed_pc)
+        cloud_points = helpers.PC2_to_numpy_array(preprocessed_pc)
         self.frame_id = preprocessed_pc.header.frame_id
 
-        # ----- AUTOMATIC THRESHOLDING TO FIND GAPS -----
-        depth_axis_pts = points[:, self.depth_axis]
+        detector_params = gap_detection_core.DetectorParameters(
+            depth_axis=self.depth_axis,
+            automatic_thresholding=self.automatic_thresholding,
+            otsu_bins=self.otsu_bins)
 
-        if(self.automatic_thresholding == 0):
-            try:
-                threshold = threshold_minimum(depth_axis_pts)
-            except RuntimeError:
-                rospy.logwarn('Threshold_minimum was unable to find two maxima in histogram!')
-                return
-        elif(self.automatic_thresholding == 1):
-            threshold = threshold_li(depth_axis_pts)
-        elif(self.automatic_thresholding == 2):
-            threshold = threshold_yen(depth_axis_pts)
-        elif(self.automatic_thresholding == 3):
-            threshold = threshold_otsu(depth_axis_pts, self.otsu_bins)
-        else:
-            raise Exception('Automatic threshold value out of bounds!')
+        clustering_params = gap_detection_core.ClusteringParameters(
+            method=gap_detection_core.ClusteringMethod.from_value(self.clustering),
+            kmeans_clusters=self.KM_number_of_clusters,
+            birch_branching_factor=self.B_branching_factor,
+            birch_threshold=self.B_threshold,
+            dbscan_eps=self.DB_eps,
+            hdbscan_min_cluster_size=self.HDB_min_cluster_size)
 
-        device_surface_pts = points[depth_axis_pts <= threshold]
-        self.surface_height = np.median(device_surface_pts[:, self.depth_axis])
-        points = points[depth_axis_pts > threshold]
+        try:
+            detection_result = gap_detection_core.detect_gaps(
+                cloud_points, detector_params, clustering_params)
+        except gap_detection_core.GapDetectionError as exc:
+            rospy.logwarn(str(exc))
+            self.gaps = []
+            self._gap_point_counts = []
+            self._volume_correction_counts = []
+            self.detected_gap.set()
+            return
 
-        # ----- PUBLISHING OF THE POTENTIAL GAPS -----
-        potential_gaps = helpers.numpy_array_to_PC2(points, self.frame_id)
+        self.surface_height = detection_result.surface_height
+
+        potential_gaps = helpers.numpy_array_to_PC2(
+            detection_result.potential_gap_points, self.frame_id)
         self.potential_gaps_pub.publish(potential_gaps)
 
-        # ----- CLUSTERING THE GAPS -----
-        clustering_switch = {
-            0: self.kmeans,
-            1: self.birch,
-            2: self.dbscan,
-            3: self.hdbscan
-        }
-
-        cluster_algorithm = clustering_switch[self.clustering]
-        labels = cluster_algorithm(points)
-
-        labels = np.array(labels)
-        labels_T = np.array([labels]).T
-        clustered_points = np.append(points, labels_T, axis=1)
-
-
-        clusters = []
-        for i in set(labels):
-            cluster = clustered_points[clustered_points[:, 3] == float(i)]
-            cluster = cluster[:, [0, 1, 2]]
-
-            # To construct a convex hull a minimum of 4 points is needed
-            num_of_points, dim = cluster.shape
-            if(num_of_points >= 4):
-                clusters.append(cluster)
-
-        # ----- VOLUME CORRECTION -----
-        volume_corrected_clusters = []
-        num_vol_corrected_pts = 0
-        volume_corrected_pts_tuple = ()
-        for cluster in clusters:
-            hull = ConvexHull(cluster, qhull_options="QJ")
-
-            # Map from vertex to point in cluster
-            vertices = []
-            for vertex in hull.vertices:
-                x, y, z = cluster[vertex]
-                vertices.append([x, y, z])
-
-            gap = cluster.tolist()
-            for vertex in vertices:
-                # For each vertex, add a new point to the gap with the height
-                # of the surface and the other axes corresponding to the vertex
-                if(self.depth_axis == 0):
-                    volume_point = [self.surface_height, vertex[1], vertex[2]]
-                elif(self.depth_axis == 1):
-                    volume_point = [vertex[0], self.surface_height, vertex[2]]
-                elif(self.depth_axis == 2):
-                    volume_point = [vertex[0], vertex[1], self.surface_height]
-
-                gap.append(volume_point)
-                num_vol_corrected_pts = num_vol_corrected_pts + 1
-
-            volume_corrected_clusters.append(np.array(gap))
-            volume_corrected_pts_tuple = volume_corrected_pts_tuple + \
-                (num_vol_corrected_pts,)
-            num_vol_corrected_pts = 0
-
-        # ---- CALCULATING CONVEX HULLS OF GAPS AND THEIR CENTER -----
-        self.convex_hulls_and_info = helpers.calculate_convex_hulls_and_centers(volume_corrected_clusters)
-
-        # ---- FILTER BASED ON VOLUME -----
         self.gaps = []
-        for gap_info in self.convex_hulls_and_info:
-            gap_volume = gap_info[3]
+        self._gap_point_counts = []
+        self._volume_correction_counts = []
 
-            # convert cm^3 to m^3
-            gap_volume = gap_volume * 1000000.0
+        for gap in detection_result.gaps:
+            gap_info = [gap.center, gap.vertices, gap.simplices,
+                        gap.volume, gap.size, gap.total_points]
+            gap_volume_cm3 = gap.volume_cm3
 
-            if(self.min_gap_volume <= gap_volume <= self.max_gap_volume):
+            if(self.min_gap_volume <= gap_volume_cm3 <= self.max_gap_volume):
                 self.gaps.append(gap_info)
+                self._gap_point_counts.append(gap.original_points)
+                self._volume_correction_counts.append(gap.volume_correction_points)
 
-        
         # ----- EVALUATION -----
-        if(self.create_evaluation):
-            num_of_points = np.subtract(num_of_points, num_vol_corrected_pts)
-            helpers.evaluate_detector(num_of_points)
+        if(self.create_evaluation and self.gaps):
+            corrected_counts = [original - correction for original, correction
+                                in zip(self._gap_point_counts,
+                                       self._volume_correction_counts)]
+            try:
+                helpers.evaluate_detector(corrected_counts)
+            except RuntimeError as exc:
+                rospy.logwarn(str(exc))
             self.create_evaluation = False
 
-        self.detected_gap.set()  # signal succesful gap detection
+        self.detected_gap.set()  # signal successful gap detection
 
 
     # =============== DYNAMIC RECONFIGURE CALLBACK ===============
@@ -308,25 +246,6 @@ class GapDetector:
 
         rospy.loginfo('Service response sent.')
         return response
-
-    # =============== CLUSTER ALGORITHM WRAPPERS ===============
-    def kmeans(self, data):
-        return cluster.KMeans(n_clusters=self.KM_number_of_clusters).fit_predict(data)
-
-    def birch(self, data):
-        params = {'branching_factor': self.B_branching_factor,
-                  'threshold': self.B_threshold,
-                  'n_clusters': None,
-                  'compute_labels': True}
-
-        return cluster.Birch(**params).fit_predict(data)
-
-    def dbscan(self, data):
-        return cluster.DBSCAN(eps=self.DB_eps).fit_predict(data)
-
-    def hdbscan(self, data):
-        return hdbscan.HDBSCAN(min_cluster_size=self.HDB_min_cluster_size).fit_predict(data)
-
 
 if __name__ == '__main__':
     rospy.init_node('ugoe_gap_detection_node', anonymous=True)
